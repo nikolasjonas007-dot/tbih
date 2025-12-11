@@ -1,0 +1,1543 @@
+(() => {
+  // =============== MENU ==================
+  const menu = document.createElement("div");
+  menu.id = "menu";
+  menu.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;background:#111;color:white;font-family:sans-serif;text-align:center;">
+    <h1 style="margin-bottom: 20px;">Trouble in Krasnucha</h1>
+
+    <div style="margin-bottom:15px;">
+      <span>Choose Character:</span><br>
+      <div id="charRow" style="display:flex;gap:20px;justify-content:center;margin-top:10px;">
+        <div style="text-align:center;">
+          <img src="./player.png" style="width:60px;height:80px;" alt="Nikolas"><br>
+          <button data-char="player" id="btnCharNikolas" style="margin-top:5px;padding:8px 12px;">Nikolas</button>
+        </div>
+        <div style="text-align:center;">
+          <img src="./player2.png" style="width:60px;height:80px;" alt="Naglis"><br>
+          <button data-char="player2" id="btnCharNaglis" style="margin-top:5px;padding:8px 12px;">Naglis</button>
+        </div>
+        <div id="secretCharContainer" style="text-align:center;display:none;">
+          <img id="secretImg" src="./secret.png" style="width:60px;height:90px;" alt="Secret"><br>
+          <button data-char="secret" id="btnCharSecret" style="margin-top:5px;padding:8px 12px;">???</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="btnStart" style="font-size:20px;padding:10px 20px;margin-bottom:10px;">Start Game</button>
+    <button id="btnControls" style="font-size:18px;padding:8px 16px;">Controls</button>
+    <button id="btnDevControl" style="font-size:16px;padding:6px 14px;margin-top:8px;background:#444;color:white;">Dev Controls</button>
+
+    <div id="controlsInfo" style="display:none;margin-top:20px;color:#ccc;font-size:16px;line-height:1.8;">
+      <p>🡒 Arrow Keys – Move</p>
+      <p>🡒 Spacebar – Attack</p>
+      <p>🡒 Collect Vodka – Boost Speed & Strength</p>
+      <p>🡒 Collect Cigarettes – Heal</p>
+    </div>
+  </div>`;
+  document.body.appendChild(menu);
+
+  // Canvas & scroll blocking
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.style.display = "none";
+  canvas.width = 1100; canvas.height = 650;
+  document.body.appendChild(canvas);
+  function isGameVisible(){ return canvas.style.display !== "none"; }
+  document.addEventListener("keydown", (e) => {
+    const block = ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ","Spacebar","Enter"];
+    if (isGameVisible() && block.includes(e.key)) e.preventDefault();
+  }, { passive: false });
+
+  // =============== OVERLAYS ==================
+  const bossIntroOverlay = document.createElement("div");
+  Object.assign(bossIntroOverlay.style, {
+    position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+    backgroundColor: "rgba(0,0,0,0.9)", color: "white", display: "none",
+    justifyContent: "center", alignItems: "center", fontSize: "40px",
+    fontFamily: "Impact, sans-serif", zIndex: 9998
+  });
+  bossIntroOverlay.innerText = "KRASNUCHA BOSS APPROACHES...";
+  document.body.appendChild(bossIntroOverlay);
+
+  const gameOverOverlay = document.createElement("div");
+  Object.assign(gameOverOverlay.style, {
+    position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+    backgroundColor: "rgba(0,0,0,0.92)", color: "white", display: "none",
+    justifyContent: "center", alignItems: "center", flexDirection: "column",
+    gap: "16px", fontFamily: "sans-serif", zIndex: 10001
+  });
+  const goTitle = document.createElement("div"); goTitle.textContent = "GAME OVER"; goTitle.style.fontSize = "56px";
+  const goScore = document.createElement("div"); goScore.id = "goScore"; goScore.style.fontSize = "22px";
+  const retryBtn = document.createElement("button"); retryBtn.textContent = "Retry";
+  Object.assign(retryBtn.style, { padding: "10px 22px", fontSize: "18px", background: "#333", color: "#fff", border: "2px solid #666", cursor: "pointer" });
+  retryBtn.addEventListener("click", () => { gameOverOverlay.style.display = "none"; startGame(); });
+  gameOverOverlay.appendChild(goTitle); gameOverOverlay.appendChild(goScore); gameOverOverlay.appendChild(retryBtn);
+  document.body.appendChild(gameOverOverlay);
+
+  // GREEN FILTER (used for Kasyak & gas)
+  const greenFilterOverlay = document.createElement("div");
+  Object.assign(greenFilterOverlay.style, {
+    position: "fixed", inset: "0", background: "rgba(0,160,0, 0.2)",
+    color: "#001b00", display: "none", alignItems: "center",
+    justifyContent: "center", flexDirection: "column", zIndex: 10003,
+    fontFamily: "Impact, system-ui, sans-serif", textAlign: "center"
+  });
+  const greenText = document.createElement("div");
+  greenText.style.fontSize = "42px";
+  greenFilterOverlay.appendChild(greenText);
+  document.body.appendChild(greenFilterOverlay);
+  let isKasyakActive = false;
+
+  // =============== SHOP OVERLAY ==================
+  let wallet = 11.35;
+  const fmtLT = (n) => "€" + n.toFixed(2).replace(".", ",");
+  const PRICE = { BEER: 0.99, CIGS: 4.99, KASYAK: 9.99 };
+
+  const shopOverlay = document.createElement("div");
+  Object.assign(shopOverlay.style, {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.6)",
+    display: "none",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10002,
+    fontFamily: "sans-serif",
+    color: "#fff"
+  });
+
+  const shopCard = document.createElement("div");
+  Object.assign(shopCard.style, {
+    background: "#1b1b1b",
+    border: "2px solid #444",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+    borderRadius: "12px",
+    padding: "18px 20px",
+    width: "min(720px, 92vw)",
+  });
+
+  shopCard.innerHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:18px;">Armen:</div>
+      <div style="font-size:16px;">Labą dieną, ko šiandien norėtumėt?</div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div id="shopHint" style="color:#ddd;font-size:14px;">Pasirinkite prekę.</div>
+      <div id="shopBalance" style="background:#0d0d0d;border:1px solid #333;border-radius:8px;padding:6px 10px;">
+        Sąskaita: <b id="walletVal"></b>
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="text-align:left;background:#2a2a2a;">
+          <th style="padding:10px;border-bottom:1px solid #444;">Prekė</th>
+          <th style="padding:10px;border-bottom:1px solid #444;">Kaina</th>
+          <th style="padding:10px;border-bottom:1px solid #444;">Veiksmas</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:10px;display:flex;align-items:center;gap:10px;">
+            <img src="./beer.png" alt="Beer" style="width:42px;height:42px;object-fit:contain;border:1px solid #333;background:#111;border-radius:6px;">
+            Alus
+          </td>
+          <td style="padding:10px;">€0,99</td>
+          <td style="padding:10px;">
+            <button data-item="BEER" id="buyBeer" style="padding:6px 10px;background:#3a3; color:#fff; border:0; border-radius:8px; cursor:pointer;">Pirkti</button>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px;display:flex;align-items:center;gap:10px;">
+            <img src="./cigarette.png" alt="Cigarettes" style="width:42px;height:42px;object-fit:contain;border:1px solid #333;background:#111;border-radius:6px;">
+            Cigaretės
+          </td>
+          <td style="padding:10px;">€4,99</td>
+          <td style="padding:10px;">
+            <button data-item="CIGS" id="buyCigs" style="padding:6px 10px;background:#3a3; color:#fff; border:0; border-radius:8px; cursor:pointer;">Pirkti</button>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px;display:flex;align-items:center;gap:10px;">
+            <img src="./kasyak.png" alt="Kasyak" style="width:42px;height:42px;object-fit:contain;border:1px solid #333;background:#111;border-radius:6px;">
+            Kasyak
+          </td>
+          <td style="padding:10px;">€9,99</td>
+          <td style="padding:10px;">
+            <button data-item="KASYAK" id="buyKasyak" style="padding:6px 10px;background:#3a3; color:#fff; border:0; border-radius:8px; cursor:pointer;">Pirkti</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;gap:10px;">
+      <button id="closeShop" style="padding:8px 12px;background:#555;color:#fff;border:0;border-radius:8px;cursor:pointer;">Uždaryti</button>
+    </div>
+  `;
+  shopOverlay.appendChild(shopCard);
+  document.body.appendChild(shopOverlay);
+
+  const walletValEl = shopCard.querySelector("#walletVal");
+  function refreshWallet(){ walletValEl.textContent = fmtLT(wallet); }
+  function shopToast(msg){ showPlayerDialogue(msg, 180); }
+  function canAfford(cost){ return wallet >= cost - 1e-9; }
+  function charge(cost){ wallet = Math.max(0, +(wallet - cost).toFixed(2)); refreshWallet(); }
+
+  function showShop(){
+    gamePaused = true;
+    refreshWallet();
+    shopOverlay.style.display = "flex";
+    shopCard.querySelector("#closeShop").onclick = hideShop;
+
+    shopCard.querySelector("#buyBeer").onclick = () => {
+      if (!canAfford(PRICE.BEER)) return shopToast("Neturi tiek pinigų.");
+      charge(PRICE.BEER);
+      hideShop();
+      beerExitConversation(2, false);
+    };
+
+    shopCard.querySelector("#buyCigs").onclick = () => {
+      if (!canAfford(PRICE.CIGS)) return shopToast("Neturi tiek pinigų.");
+      charge(PRICE.CIGS);
+      shopToast("Paėmėte: cigaretės.");
+    };
+
+    shopCard.querySelector("#buyKasyak").onclick = () => {
+      if (!canAfford(PRICE.KASYAK)) return shopToast("Neturi tiek pinigų.");
+      charge(PRICE.KASYAK);
+      hideShop();
+      playKasyakEffect();
+      beerExitConversation(4, true); // Kasyak path
+    };
+  }
+  function hideShop(){ shopOverlay.style.display = "none"; gamePaused = false; }
+
+  // =============== AUDIO ==================
+  let music = new Audio("./bomzas repuoja.mp3"); music.loop = true; music.volume = 0.5;
+  const hitSounds = [new Audio("./bomzuiskauda1.mp3"), new Audio("./bomzuiskauda3.MP3")];
+  const dogBark = new Audio("./sabakaloja.mp3"); dogBark.volume = 0.6;
+  const vodkaPickupSound = new Audio("./vodkapickup.mp3");
+  const bossBoom = new Audio("./bossboom.mp3"); bossBoom.volume = 0.7;
+  const sirenSound = new Audio("./police_siren.mp3"); sirenSound.loop = true; sirenSound.volume = 0.6;
+  const gasSound = new Audio("./gas_hiss.mp3"); gasSound.volume = 0.7;
+  let audioUnlocked = false;
+  function tryUnlockAudioOnce() {
+    if (audioUnlocked) return;
+    bossBoom.play().then(() => { bossBoom.pause(); bossBoom.currentTime = 0; audioUnlocked = true; }).catch(()=>{});
+  }
+  document.addEventListener("click", tryUnlockAudioOnce, { once: true });
+  function playHitSound() { const s = hitSounds[Math.floor(Math.random()*hitSounds.length)].cloneNode(); s.play().catch(()=>{}); }
+
+  // =============== ASSETS ==================
+  const background = new Image();
+  let bgReady = false, bgFailed = false, bgLoadTimeout = null, currentBgPath = "";
+  function setBackground(src) {
+    bgReady = false; bgFailed = false; currentBgPath = src;
+    if (bgLoadTimeout) clearTimeout(bgLoadTimeout);
+    background.onload = () => { bgReady = true; bgFailed = false; };
+    background.onerror = () => { console.error("Background failed to load:", src); bgFailed = true; bgReady = false; };
+    background.src = `${src}?v=${performance.now()}`;
+    bgLoadTimeout = setTimeout(() => { if (!bgReady && !bgFailed) console.warn("Background load slow:", src); }, 1500);
+  }
+  function setBackgroundTry(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) { console.error("setBackgroundTry: empty candidate list"); return; }
+    let i = 0;
+    const tryNext = () => {
+      if (i >= candidates.length) { console.error("All background candidates failed:", candidates); bgFailed = true; return; }
+      const src = candidates[i++]; bgReady = false; bgFailed = false; currentBgPath = src;
+      if (bgLoadTimeout) clearTimeout(bgLoadTimeout);
+      background.onload = () => { bgReady = true; bgFailed = false; };
+      background.onerror = () => { console.warn("Background failed, trying next:", src); tryNext(); };
+      background.src = `${src}?v=${performance.now()}`;
+      bgLoadTimeout = setTimeout(() => { if (!bgReady && !bgFailed) console.warn("Background load slow:", src); }, 1500);
+    };
+    tryNext();
+  }
+  const enemy1Image = new Image(), enemy2Image = new Image();
+  const bust = (src) => `${src}?v=${Math.floor(performance.now())}`;
+  enemy1Image.onerror = () => console.error("enemy1.png failed");
+  enemy2Image.onerror = () => { console.warn("enemy2.png failed — fallback"); enemy2Image.onerror = null; enemy2Image.src = bust("./enemy1.png"); };
+  enemy1Image.src = bust("./enemy1.png"); enemy2Image.src = bust("./enemy2.png");
+
+  const playerImage     = new Image();
+  const allyImage       = new Image();
+  const bossImage       = new Image(); bossImage.src = "./boss.png";
+  const dogImage        = new Image(); dogImage.src = "./dog.png";
+  const babushkaImage   = new Image(); babushkaImage.src = "./babushka.png";
+  const cigaretteImage  = new Image(); cigaretteImage.src = "./cigarette.png";
+  const vodkaImage      = new Image(); vodkaImage.src = "./vodka.png";
+  const oreoBossImage   = new Image(); oreoBossImage.src = "./oreo.png";
+  const ponchikImage    = new Image(); ponchikImage.src = "./ponchik.png";
+  const deodorantImage  = new Image(); deodorantImage.src = "./deodorant.png";
+  const tearImage       = new Image(); tearImage.src = "./tear.png";
+  const explosionImage  = new Image(); explosionImage.src = "./explosion.gif";
+
+  const policemanImage  = new Image(); policemanImage.src = "./policeman.png";
+  const policeCarImage  = new Image(); policeCarImage.src = "./policecar.png";
+
+  // Street Avenger assets
+  const avengerImage    = new Image(); avengerImage.src = "./volkas.png";
+  const sprayImage      = new Image(); sprayImage.src = "./spray.png";
+
+  function drawImg(img, x, y, w, h) {
+    if (img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, x, y, w, h);
+    else {
+      ctx.fillStyle="#555"; ctx.fillRect(x,y,w,h);
+      ctx.strokeStyle="#000"; ctx.lineWidth=2; ctx.strokeRect(x,y,w,h);
+      ctx.font="12px Arial"; ctx.fillStyle="#fff"; ctx.fillText("IMG…", x+6, y+16);
+    }
+  }
+
+  // =============== STATE ==================
+  const STAGE = { TOWN:1, MAXIMA:2, STORE:3, ARM:4, ARMSHOP:5, FINAL:6 };
+  let selectedCharacter = "player";
+  let bossHasSpawned = false, stageCleared = false, gamePaused = false;
+  let currentStage = STAGE.TOWN, score = 0;
+  let babushkaWaveCount = 0; const maxBabushkaWaves = 5;
+  let stage2AwaitingClear = false, stage2TransitionQueued = false;
+
+  const stage3 = {
+    boss: null, ponchiks: [], attackTimer: 0, attackEvery: 65,
+    bossHP: 10, deodorants: [], tears: [], tearTimer: 0, explosions: []
+  };
+  const coop = { active: false, ambushActive: false, ally: null };
+
+  let deodorantSpawnTimer = null;
+  const DEO_SIZE = 48;
+  const OREO_PONCHIK_DAMAGE_FRAC = 1/6;
+
+  const OREO_LINES = [
+    "Nu koks baisus lagas man",
+    "Eigi gali tik pasvajot apie pončikus",
+    "Niekada nesimaudysiu",
+    "Bandyk mane nuplauti, jei gali"
+  ];
+
+  const characters = {
+    player:  { name:"Nikolas", image: "./player.png",  width: 50, height: 80, baseSpeed: 4,  baseHealth: 14, baseStr: 1.3, attackCooldownTime: 20 },
+    player2: { name:"Naglis",  image: "./player2.png", width: 50, height: 80, baseSpeed: 7,  baseHealth: 10, baseStr: 0.8, attackCooldownTime: 10 },
+    secret:  { name:"???",     image: "./secret.png",  width: 60, height: 90, baseSpeed: 10, baseHealth: 20, baseStr: 3,   attackCooldownTime: 8  }
+  };
+
+  let player = {
+    x: 1000, y: 400, width: 50, height: 80, dx: 0, dy: 0,
+    speed: 5, baseSpeed: 5, health: 10, maxHealth: 10, strength: 1, baseStr: 1,
+    attackCooldownTime: 20, attackCooldown: 0, name: "Hero"
+  };
+
+  // Stage 4 ARM door
+  let armEntranceGlowActive = false;
+  let armEntranceGlowOpacity = 0;
+  let armGlowPulseDirection = 1;
+  let ARM_DOOR_RECT = { x: 520, y: 260, width: 120, height: 140 };
+
+  // Power-ups
+  let cigarette = { x: 0, y: 0, width: 40, height: 60, active: true };
+  let vodka = { x: 0, y: 0, width: 100, height: 100, active: false };
+  let cigInterval = null, vodkaInterval = null, vodkaBuffTimeout = null;
+
+  function repositionCigarette() {
+    cigarette.x = Math.random()*(canvas.width - cigarette.width);
+    cigarette.y = Math.random()*(canvas.height - cigarette.height);
+    cigarette.active = true;
+  }
+  function repositionVodka(activate=true) {
+    vodka.x = Math.random()*(canvas.width - vodka.width);
+    vodka.y = Math.random()*(canvas.height - vodka.height);
+    vodka.active = activate;
+  }
+  function resetPowerupsTimers() {
+    if (cigInterval) clearInterval(cigInterval);
+    if (vodkaInterval) clearInterval(vodkaInterval);
+    repositionCigarette(); repositionVodka(false);
+    cigInterval = setInterval(repositionCigarette, 8000);
+    vodkaInterval = setInterval(() => repositionVodka(true), 30000);
+  }
+  function applyVodkaBuff(ms=10000) {
+    vodkaPickupSound.play().catch(()=>{});
+    player.speed = player.baseSpeed * 1.5; player.strength = player.baseStr * 1.2;
+    clearTimeout(vodkaBuffTimeout);
+    vodkaBuffTimeout = setTimeout(() => {
+      player.speed = player.baseSpeed; player.strength = player.baseStr;
+    }, ms);
+  }
+
+  // =============== INPUT ==================
+  const keys = {};
+  document.addEventListener("keydown", (e) => {
+    if (isGameVisible() && (e.key.startsWith("Arrow") || e.key === " " || e.key === "Spacebar" || e.key === "Enter")) e.preventDefault();
+    keys[e.key] = true;
+    keyCombo.push(e.key); if (keyCombo.length > secretCode.length) keyCombo.shift();
+    if (JSON.stringify(keyCombo) === JSON.stringify(secretCode)) {
+      alert("🕶️ Secret character unlocked!");
+      selectedCharacter = "secret";
+      const secretContainer = document.getElementById("secretCharContainer");
+      const secretBtn = document.getElementById("btnCharSecret");
+      const secretImg = document.getElementById("secretImg");
+      secretContainer.style.display = "block"; secretBtn.innerText = "Secret"; secretImg.style.border = "3px solid gold";
+      highlightSelectedCharButton(); keyCombo.length = 0;
+    }
+    if (e.key === " ") attack();
+  });
+  document.addEventListener("keyup", (e) => { keys[e.key] = false; });
+
+  const keyCombo = []; const secretCode = ["ArrowUp","ArrowUp","ArrowDown","ArrowDown","ArrowLeft","ArrowRight","ArrowLeft","ArrowRight"];
+
+  const btnStart = document.getElementById("btnStart");
+  const btnControls = document.getElementById("btnControls");
+  const btnDevControl = document.getElementById("btnDevControl");
+  const controlsInfo = document.getElementById("controlsInfo");
+
+  btnStart.addEventListener("click", () => playIntroVideo());
+  btnControls.addEventListener("click", () => {
+    controlsInfo.style.display = controlsInfo.style.display === "none" ? "block" : "none";
+  });
+  btnDevControl.addEventListener("click", () => {
+    const stage = prompt("Dev Control: Enter stage (1, 2, 3, 4, 5, 6)", "1");
+    if (!stage) return;
+    selectedCharacter = selectedCharacter || "player";
+    startGame();
+    if (stage === "2") goToStage2();
+    else if (stage === "3") goToStage3();
+    else if (stage === "4") goToStage4_ARM();
+    else if (stage === "5") goToArmShop();
+    else if (stage === "6") goToStageNightFinal(); // dev – final night
+    else currentStage = STAGE.TOWN;
+  });
+
+  document.getElementById("charRow").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-char]"); if (!btn) return;
+    selectedCharacter = btn.dataset.char; highlightSelectedCharButton();
+  });
+  function highlightSelectedCharButton() {
+    ["btnCharNikolas","btnCharNaglis","btnCharSecret"].forEach(id => {
+      const el = document.getElementById(id); if (!el) return;
+      el.style.backgroundColor = (el.dataset.char === selectedCharacter) ? "#444" : "";
+    });
+  }
+
+  // =============== ENEMY & POLICE ==================
+  let enemies = [];
+
+  const POLICE_OFFICER_STATS = {
+    speed: 2.8,
+    health: 4,
+    damage: 1.0,
+    width: 50, height: 80,
+    isBoss: false, isDog: false, isBabushka: false, isPoliceman: true, isPoliceCar: false
+  };
+  const POLICE_CAR_STATS = {
+    speed: 4,
+    health: 10,
+    damage: 0.2,
+    width: 120, height: 80,
+    isBoss: false, isDog: false, isBabushka: false, isPoliceman: false, isPoliceCar: true,
+    knockback: 0
+  };
+
+  let armAmbushType = "none"; // "none" | "hobo" | "police"
+  let lastPoliceAmbushWasKasyak = false;
+
+  // Street volkas cinematic state
+  let avengerSprite = null;
+  let avengerSpraySprite = null;
+  let avengerSpriteTimer = 0;
+  let avengerCinematicState = null; // "entrance" | "spray" | "fight" | "death" | null
+  let avengerTimer = 0;
+  let sprayParticles = [];
+  let nightOverlay = false;
+
+  function spawnPoliceAmbush(carCount, isKasyak = false) {
+    sirenSound.play().catch(()=>{});
+    gamePaused = true;
+    coop.ambushActive = true;
+    armAmbushType = "police";
+    lastPoliceAmbushWasKasyak = isKasyak;
+    enemies = [];
+
+    const introText = isKasyak
+      ? "Policija: Rūkot žolę viešoj vietoj, vyručiai?"
+      : "Policija: Rankos už galvos!";
+
+    showPlayerDialogue(introText, 260);
+
+    setTimeout(() => {
+      // Big wave of police cars
+      for (let i = 0; i < carCount; i++) {
+        const x = Math.random() * (canvas.width - 200) + 100;
+        const y = Math.random() * (canvas.height - 200) + 100;
+        enemies.push({
+          x, y, ...POLICE_CAR_STATS,
+          attackCooldown: 0, speed: 1.4,
+          maxHealth: POLICE_CAR_STATS.health,
+          speech: isKasyak ? "Čia kvepia ne tik Maxima..." : "Stokite, piliečiai!",
+          speechCooldown: Math.random() * 400 + 300
+        });
+      }
+
+      // Many officers
+      const totalPolicemen = carCount * 5;
+      for (let i = 0; i < totalPolicemen; i++) {
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height;
+        enemies.push({
+          x, y,
+          ...POLICE_OFFICER_STATS,
+          attackCooldown: 0, knockback: 0, hitTimer: 0,
+          speech: isKasyak
+            ? ["Kas čia smirda kaip kibiras žolės?!","Galvojat Krasnucha Amsteris?"][Math.floor(Math.random()*2)]
+            : ["Einam į areštinę!","Nebegyvas!"][Math.floor(Math.random()*2)],
+          speechCooldown: Math.random() * 400 + 300
+        });
+      }
+
+      gamePaused = false;
+
+      // Scripted: too many cops – they will overwhelm heroes and trigger volkas cinematic
+      setTimeout(() => {
+        triggerVolkasRescue();
+      }, 6000);
+
+    }, 1600);
+  }
+
+  function spawnExtraPoliceWave() {
+    enemies = [];
+    for (let i = 0; i < 12; i++) {
+      const x = Math.random() * (canvas.width - 100);
+      const y = Math.random() * (canvas.height - 120);
+      enemies.push({
+        x,
+        y,
+        ...POLICE_OFFICER_STATS,
+        attackCooldown: 0,
+        knockback: 0,
+        hitTimer: 0,
+        speech: "Jį suimkit!",
+        speechCooldown: Math.random() * 200 + 100
+      });
+    }
+  }
+
+  function spawnEnemy() {
+    if (currentStage === STAGE.STORE || coop.ambushActive || currentStage === STAGE.FINAL) return;
+    if (stageCleared && !coop.ambushActive) return;
+
+    if (currentStage === STAGE.TOWN) {
+      if (!bossHasSpawned && score >= 10 && enemies.length === 0) {
+        const bossEnemy = {
+          x: 320, y: 320, width: 80, height: 120,
+          speed: 1, health: 12, attackCooldown: 0, knockback: 0,
+          isBoss: true, hitTimer: 0, skin: 1, speech: "",
+          speechCooldown: Math.random() * 300 + 200
+        };
+        bossHasSpawned = true; gamePaused = true; music.pause();
+        bossIntroOverlay.style.display = "flex"; bossBoom.play().catch(()=>{});
+        setTimeout(() => {
+          bossIntroOverlay.style.display = "none"; gamePaused = false; music.play().catch(()=>{});
+          setTimeout(() => {
+            bossEnemy.speech = ["Aš krasnuchos bosas!","Nakti praleisi areštinėje!"][Math.floor(Math.random()*2)];
+            setTimeout(() => bossEnemy.speech = "", 2000);
+          }, 100);
+          summonDogs(bossEnemy);
+        }, 3000);
+        enemies.push(bossEnemy);
+        return;
+      }
+      if (bossHasSpawned && enemies.length > 0) return;
+      const count = 1 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < count; i++) {
+        const fromLeft = Math.random() < 0.5;
+        const x = fromLeft ? -50 : canvas.width + 50;
+        const y = Math.random() * (canvas.height - 160) + 80;
+        enemies.push({
+          x, y,
+          width: 50, height: 80,
+          speed: 1.4, health: 2,
+          attackCooldown: 0, knockback: 0, hitTimer: 0,
+          isBoss: false, isDog: false, isBabushka: false, isPoliceman: false, isPoliceCar: false,
+          skin: Math.random() < 0.5 ? 1 : 2,
+          speech: "", speechCooldown: Math.random() * 400 + 300
+        });
+      }
+      return;
+    }
+
+    if (currentStage === STAGE.MAXIMA) {
+      if (babushkaWaveCount >= maxBabushkaWaves) return;
+      if (Math.random() < 0.6) {
+        const count = Math.floor(Math.random()*5) + 5;
+        for (let i=0; i<count; i++) {
+          enemies.push({
+            x: Math.random()*canvas.width, y: Math.random()*canvas.height,
+            width:40, height:50, speed:0.8, health:1, attackCooldown:0, knockback:0,
+            isBabushka:true, speech:"Kun čia darai, jaunuoli?!",
+            speechCooldown: Math.random()*500+200, hitTimer:0
+          });
+        }
+        babushkaWaveCount++;
+        if (babushkaWaveCount === maxBabushkaWaves) {
+          stage2AwaitingClear = true;
+          showPlayerDialogue("Paskutinė banga! Išvalyk Maximą.", 400);
+        }
+      }
+      return;
+    }
+  }
+
+  function summonDogs(boss) {
+    if (!stageCleared && enemies.includes(boss)) {
+      for (let i=0;i<2;i++) enemies.push({
+        x: boss.x, y: boss.y, width:40, height:50,
+        speed:4, health:1, attackCooldown:0, knockback:0, isDog:true
+      });
+      dogBark.play().catch(()=>{});
+    }
+  }
+  let spawnTimer = null;
+
+  // =============== HELPERS ===============
+  function rectsOverlap(a,b){
+    return a.x+a.width>=b.x && a.x<=b.x+b.width && a.y+a.height>=b.y && a.y<=b.y+b.height;
+  }
+  function dist(a,b){
+    const dx=a.x+ a.width/2 - (b.x + b.width/2);
+    const dy=a.y + a.height/2 - (b.y + b.height/2);
+    return Math.hypot(dx,dy);
+  }
+  function nearestTarget(enemy){
+    let target = player, d = dist(enemy, player);
+    if (coop.active && coop.ally && coop.ally.health>0) {
+      const d2 = dist(enemy, coop.ally);
+      if (d2 < d) { target = coop.ally; d = d2; }
+    }
+    return target;
+  }
+
+  function spawnDeodorantOnPath() {
+    if (currentStage !== STAGE.STORE) return;
+    const w = DEO_SIZE, h = DEO_SIZE;
+    const laneY = Math.min(player.y + player.height - h - 6, canvas.height - h - 6);
+    stage3.deodorants.push({
+      x: Math.max(0, Math.min(player.x + player.width/2 - w/2, canvas.width - w)),
+      y: laneY, w, h, mode: "ground", vx: 0, vy: 0
+    });
+  }
+  function launchDeoRocket(d) {
+    if (!stage3.boss) return;
+    const bx = stage3.boss.x + stage3.boss.width/2;
+    const by = stage3.boss.y + stage3.boss.height/2;
+    const dx = bx - (d.x + d.w/2); const dy = by - (d.y + d.h/2);
+    const len = Math.max(1, Math.hypot(dx, dy)); const speed = 7.2;
+    d.mode = "rocket"; d.vx = (dx/len) * speed; d.vy = (dy/len) * speed;
+  }
+
+  // ====== Dialogue helpers ======
+  let dialogueText = ""; let dialogueTimer = 0;
+  const DIALOGUE_FRAMES = 400;
+  const DIALOGUE_MS = 4000;
+  
+  function showPlayerDialogue(text, frames=DIALOGUE_FRAMES){
+    dialogueText = text; dialogueTimer = frames;
+  }
+  function playDialogueSequence(lines, onDone){
+    gamePaused = true;
+    function step(idx){
+      if (idx >= lines.length) { gamePaused = false; if (onDone) onDone(); return; }
+      const { text, ms } = lines[idx];
+      showPlayerDialogue(text, Math.ceil((ms||DIALOGUE_MS)/16.6667));
+      setTimeout(()=> step(idx+1), ms||DIALOGUE_MS);
+    }
+    step(0);
+  }
+
+  function handleOreoHit() {
+    if (!stage3.boss) return;
+    stage3.bossHP = Math.max(0, stage3.bossHP - 1);
+    stage3.boss.hitFlash = 8;
+    if (stage3.bossHP === 0) {
+      stage3.boss.active = false;
+
+      const exW = stage3.boss.width * 1.2, exH = stage3.boss.height * 1.2;
+      const exX = stage3.boss.x + stage3.boss.width / 2 - exW / 2;
+      const exY = stage3.boss.y + stage3.boss.height / 2 - exH / 2;
+      stage3.explosions.push({ x: exX, y: exY, w: exW, h: exH, ttl: 90 });
+
+      music.pause(); bossBoom.play().catch(()=>{});
+      showPlayerDialogue("Oreo sutraiškytas! 🧼🍩", DIALOGUE_FRAMES);
+      stage3.ponchiks.length = 0;
+      if (deodorantSpawnTimer) { clearInterval(deodorantSpawnTimer); deodorantSpawnTimer = null; }
+      stageCleared = true;
+      setTimeout(() => { startStage3VictoryBeatThenStage4(); }, 1200);
+    }
+  }
+  function startStage3VictoryBeatThenStage4(){
+    const heroName = (characters[selectedCharacter]||characters.player).name || "Hero";
+    playDialogueSequence([
+      { text: `${heroName}: Nu, dabar alaus. Reikia atsigaut.`, ms: DIALOGUE_MS }
+    ], () => { goToStage4_ARM(); });
+  }
+
+  // Minimal finalBattle struct (not using old wave system anymore)
+  const finalBattle = { active:false, wave:0, waitingForNext:false };
+
+  // =============== Volkas rescue cinematic ===============
+  function triggerVolkasRescue() {
+    if (avengerCinematicState) return; // don't double-trigger
+
+    sirenSound.pause();
+    gamePaused = true;
+
+    const heroChar = characters[selectedCharacter] || characters.player;
+    const heroName = heroChar.name || "Hero";
+    const otherKey =
+      selectedCharacter === "player" ? "player2" :
+      (selectedCharacter === "player2" ? "player" : "player");
+    const otherChar = characters[otherKey] || characters.player2;
+    const otherName = otherChar.name || "Ally";
+
+    avengerSprite = {
+      x: canvas.width + 120,
+      y: canvas.height / 2 - 100,
+      w: 120,
+      h: 160,
+      opacity: 1
+    };
+    avengerSpraySprite = {
+      x: avengerSprite.x + 80,
+      y: avengerSprite.y + 40,
+      w: 40,
+      h: 40
+    };
+    avengerCinematicState = "entrance";
+    avengerTimer = 0;
+    sprayParticles = [];
+    enemies = [];
+
+    playDialogueSequence([
+      { text: `${heroName}: Per daug jų... Nagli, laikykis!`, ms: 2200 },
+      { text: `${otherName}: Blet, aš nebegaliu... jie visur!`, ms: 2200 },
+      { text: `Policija: Rankas už galvos! Jūs areštuoti!`, ms: 2200 },
+      { text: `??? : Nieks manęs Krasnuchoj neareštuos.`, ms: 2600 }
+    ], () => {
+      gamePaused = false;
+      avengerSpriteTimer = 99999;
+      avengerCinematicState = "entrance";
+    });
+  }
+
+  // =============== UPDATE ==================
+  function update() {
+    if (gamePaused) return;
+
+    // Player motion
+    player.dx = keys["ArrowRight"] ? player.speed : keys["ArrowLeft"] ? -player.speed : 0;
+    const lockY = (currentStage === STAGE.STORE && !coop.active);
+    player.dy = lockY ? 0 : (keys["ArrowDown"] ? player.speed : keys["ArrowUp"] ? -player.speed : 0);
+    player.x = Math.max(0, Math.min(player.x + player.dx, canvas.width - player.width));
+    player.y = Math.max(0, Math.min(player.y + player.dy, canvas.height - player.height));
+    if (player.attackCooldown > 0) player.attackCooldown--;
+
+    // Ally AI
+    if (coop.active && coop.ally && coop.ally.health > 0) {
+      const ally = coop.ally;
+      if (enemies.length) {
+        let target = enemies[0], best = dist(ally, enemies[0]);
+        for (let i=1;i<enemies.length;i++){
+          const d = dist(ally, enemies[i]);
+          if (d<best) { best = d; target = enemies[i]; }
+        }
+        const dx = (target.x + target.width/2) - (ally.x + ally.width/2);
+        const dy = (target.y + target.height/2) - (ally.y + ally.height/2);
+        const len = Math.max(1, Math.hypot(dx,dy));
+        ally.x += (dx/len) * ally.speed;
+        ally.y += (dy/len) * ally.speed;
+      }
+      if (ally.attackCooldown > 0) ally.attackCooldown--;
+      for (let i=enemies.length-1;i>=0;i--){
+        const e = enemies[i];
+        if (rectsOverlap(ally, e) && ally.attackCooldown<=0) {
+          e.health -= ally.strength; e.hitTimer = 5; e.knockback = (e.x > ally.x ? 10 : -10);
+          ally.attackCooldown = ally.attackCooldownTime;
+          if (e.health <= 0) enemies.splice(i,1);
+        }
+      }
+    }
+
+    // Enemies update
+    enemies.forEach((enemy) => {
+      if (enemy.knockback > 0) {
+        enemy.x += enemy.knockback; enemy.knockback *= 0.8;
+        if (Math.abs(enemy.knockback) < 0.5) enemy.knockback = 0;
+      } else {
+        const tgt = nearestTarget(enemy);
+        if (!enemy.isPoliceCar) {
+          const dx = (tgt.x + tgt.width/2) - (enemy.x + enemy.width/2);
+          const dy = (tgt.y + tgt.height/2) - (enemy.y + enemy.height/2);
+          const len = Math.max(1, Math.hypot(dx,dy));
+          enemy.x += (dx/len) * enemy.speed;
+          enemy.y += (dy/len) * enemy.speed;
+        }
+      }
+
+      let damage = 0.5;
+      if (enemy.isBabushka) damage = 0.2;
+      else if (enemy.isPoliceman) damage = POLICE_OFFICER_STATS.damage;
+      else if (enemy.isPoliceCar) damage = POLICE_CAR_STATS.damage;
+
+      const avengerCineActive = !!avengerCinematicState;
+
+      if (!avengerCineActive) {
+        if (rectsOverlap(player, enemy)) {
+          if (enemy.attackCooldown <= 0) { player.health -= damage; enemy.attackCooldown = 60; }
+        } else if (coop.active && coop.ally && coop.ally.health>0 && rectsOverlap(coop.ally, enemy)) {
+          if (enemy.attackCooldown <= 0) { coop.ally.health = Math.max(0, coop.ally.health - damage); enemy.attackCooldown = 60; }
+        }
+      }
+
+      if (enemy.attackCooldown > 0) enemy.attackCooldown--;
+
+      if (typeof enemy.speechCooldown === "number") {
+        if (enemy.speechCooldown <= 0) {
+          if (enemy.isBoss && !enemy.isOreoFinal) {
+            enemy.speech = ["Tuoj gausi į rūrą!","Pabėgt nebandyk, pūzeli!","Aš krasnuchos bosas!","Nakti praleisi areštinėje!","Baik pyzdint bomžus!"][Math.floor(Math.random()*5)];
+          } else if (enemy.isOreoFinal) {
+            enemy.speech = ["Niekada nesimaudysiu","Pončikai – amžini","Tu nenuplausi manęs"][Math.floor(Math.random()*3)];
+          } else if (enemy.isBabushka) enemy.speech = "Kun čia darai, jaunuoli?!";
+          else if (enemy.isPoliceman || enemy.isPoliceCar) enemy.speech = ["Jūs areštuotas!","Rankos už galvos!"][Math.floor(Math.random()*2)];
+          else enemy.speech = ["Paskolintum 50 centuku?","Aš su mentais nedirbu","Duokit po eurą","Pas mane alus baigės!"][Math.floor(Math.random()*4)];
+          setTimeout(() => { enemy.speech = ""; }, 1500);
+          enemy.speechCooldown = Math.random()*500 + 300;
+        } else enemy.speechCooldown--;
+      }
+    });
+
+    // Stage 2 → Stage 3 transition
+    if (currentStage === STAGE.MAXIMA && stage2AwaitingClear && !stage2TransitionQueued && enemies.length === 0) {
+      stage2TransitionQueued = true;
+      showPlayerDialogue("Nu atrodo paskutinė banga.", DIALOGUE_FRAMES);
+      setTimeout(() => { goToStage3(); stage2AwaitingClear = false; }, DIALOGUE_MS);
+    }
+
+    // Stage 3 logic (boss)
+    if (currentStage === STAGE.STORE && !coop.active) {
+      if (stage3.boss && stage3.boss.active) {
+        stage3.attackTimer++;
+        if (stage3.attackTimer >= stage3.attackEvery) {
+          stage3.attackTimer = 0;
+          const px = player.x + player.width/2;
+          const startX = stage3.boss.x + stage3.boss.width/2;
+          const startY = stage3.boss.y + stage3.boss.height;
+          const dx = px - startX; const dy = (player.y + player.height/2) - startY;
+          const len = Math.max(1, Math.hypot(dx,dy));
+          const speed = 5.2;
+          stage3.ponchiks.push({ x: startX-16, y: startY, w: 32, h: 32, vx: (dx/len)*speed, vy: (dy/len)*speed });
+        }
+        if (stage3.bossHP < 4) {
+          stage3.tearTimer++;
+          const spawnEvery = 12 + Math.floor(Math.random()*7);
+          if (stage3.tearTimer >= spawnEvery) {
+            stage3.tearTimer = 0;
+            const burst = 2 + Math.floor(Math.random()*2);
+            for (let i=0;i<burst;i++){
+              const emitX = stage3.boss.x + stage3.boss.width * (0.35 + Math.random()*0.3);
+              const emitY = stage3.boss.y + stage3.boss.height * (0.28 + Math.random()*0.12);
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 3 + Math.random() * 2.5;
+              stage3.tears.push({ x: emitX, y: emitY, w: 20+Math.random()*10, h: 20+Math.random()*10, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed });
+            }
+          }
+        }
+      }
+      for (let i = stage3.ponchiks.length - 1; i >= 0; i--) {
+        const p = stage3.ponchiks[i];
+        p.x += p.vx; p.y += p.vy;
+        if (rectsOverlap({x:p.x,y:p.y,width:p.w,height:p.h}, player)) {
+          stage3.ponchiks.splice(i,1);
+          player.health = Math.max(0, player.health - player.maxHealth * OREO_PONCHIK_DAMAGE_FRAC);
+          if (player.health <= 0) { showGameOver(); return; }
+          continue;
+        }
+        if (p.y > canvas.height + 40 || p.x < -40 || p.x > canvas.width + 40) stage3.ponchiks.splice(i,1);
+      }
+      for (let i = stage3.tears.length - 1; i >= 0; i--) {
+        const t = stage3.tears[i]; t.x += t.vx; t.y += t.vy;
+        if (t.x < -60 || t.x > canvas.width + 60 || t.y < -60 || t.y > canvas.height + 60) stage3.tears.splice(i, 1);
+      }
+      for (let i = stage3.explosions.length - 1; i >= 0; i--) {
+        const ex = stage3.explosions[i]; ex.ttl--; if (ex.ttl <= 0) stage3.explosions.splice(i, 1);
+      }
+      if (stage3.boss) {
+        if (typeof stage3.boss.speechCooldown === "number") {
+          if (stage3.boss.speechCooldown <= 0) {
+            stage3.boss.speech = OREO_LINES[Math.floor(Math.random() * OREO_LINES.length)];
+            setTimeout(() => { if (stage3.boss) stage3.boss.speech = ""; }, 2000);
+            stage3.boss.speechCooldown = Math.floor(Math.random()*180) + 180;
+          } else stage3.boss.speechCooldown--;
+        }
+      }
+      for (let i = stage3.deodorants.length - 1; i >= 0; i--) {
+        const d = stage3.deodorants[i];
+        if (d.mode === "ground") {
+          if (rectsOverlap({x:d.x,y:d.y,width:d.w,height:d.h}, player)) launchDeoRocket(d);
+        } else if (d.mode === "rocket") {
+          d.x += d.vx; d.y += d.vy;
+          if (stage3.boss && rectsOverlap(
+            {x:d.x,y:d.y,width:d.w,height:d.h},
+            {x:stage3.boss.x,y:stage3.boss.y,width:stage3.boss.width,height:stage3.boss.height}
+          )) {
+            stage3.deodorants.splice(i, 1); handleOreoHit(); continue;
+          }
+          if (d.x < -40 || d.x > canvas.width + 40 || d.y < -40 || d.y > canvas.height + 40) stage3.deodorants.splice(i, 1);
+        }
+      }
+      if (stage3.boss && stage3.boss.hitFlash) stage3.boss.hitFlash--;
+    }
+
+    // Pickups (disabled during police gas cinematic)
+    if (!(currentStage === STAGE.ARM && coop.ambushActive && armAmbushType === "police")) {
+      if (cigarette.active && rectsOverlap(player, cigarette)) {
+        player.health = Math.min(player.health + 1, player.maxHealth); cigarette.active = false;
+      }
+      if (vodka.active && rectsOverlap(player, vodka)) {
+        vodka.active = false; applyVodkaBuff(10000);
+      }
+    }
+
+    // Stage 1 door
+    if (stageCleared && currentStage === STAGE.TOWN) {
+      const entrance = { x: 320, y: 310, width: 60, height: 75 };
+      if (rectsOverlap(player, entrance) && keys["Enter"]) goToStage2();
+    }
+
+    // Stage 4 ambush victory: hobo
+    if (currentStage === STAGE.ARM && coop.ambushActive && armAmbushType === "hobo") {
+      if (enemies.length === 0) {
+        coop.ambushActive = false;
+        armAmbushType = "none";
+        showPlayerDialogue("Švaru. Dabar galim ramiai eit alaus. 🍺", DIALOGUE_FRAMES);
+        setTimeout(() => {
+          armEntranceGlowActive = true;
+          showPlayerDialogue("Eik prie durų ir spausk Enter →", DIALOGUE_FRAMES);
+        }, DIALOGUE_MS/4);
+      }
+    }
+
+    // ARM door → ARMSHOP
+    if (currentStage === STAGE.ARM && armEntranceGlowActive) {
+      if (rectsOverlap(player, ARM_DOOR_RECT) && (keys["Enter"] || keys["Return"])) {
+        goToArmShop();
+      }
+    }
+
+    // FINAL NIGHT – if all enemies dead, show ending
+    if (currentStage === STAGE.FINAL && enemies.length === 0 && !gamePaused && !finalBattle.active) {
+      showEndingScene();
+    }
+
+    // === Volkas inematic logic ===
+    if (avengerCinematicState && avengerSprite) {
+      avengerTimer++;
+
+      if (avengerCinematicState === "entrance") {
+        avengerSprite.x -= 2;
+        if (avengerSprite.x <= canvas.width / 2 - avengerSprite.w / 2) {
+          avengerCinematicState = "spray";
+          avengerTimer = 0;
+          gasSound.play().catch(() => {});
+        }
+      }
+
+      else if (avengerCinematicState === "spray") {
+        avengerSpraySprite.x = avengerSprite.x + avengerSprite.w - 30;
+        avengerSpraySprite.y = avengerSprite.y + 40;
+
+        if (avengerTimer % 2 === 0) {
+          for (let i = 0; i < 3; i++) {
+            sprayParticles.push({
+              x: avengerSpraySprite.x + 25 + Math.random() * 5,
+              y: avengerSpraySprite.y + 10 + Math.random() * 10,
+              vx: 1 + Math.random() * 2.5,
+              vy: -0.3 + Math.random() * 0.6,
+              alpha: 0.85,
+              size: 5 + Math.random() * 5
+            });
+          }
+        }
+
+        if (avengerTimer === 20) {
+          showPlayerDialogue("Avenger: Išsiskirstykit, parazitai!", 260);
+        }
+
+        if (avengerTimer === 120) {
+          spawnExtraPoliceWave();
+          sirenSound.play().catch(() => {});
+        }
+
+        if (avengerTimer > 260) {
+          avengerCinematicState = "fight";
+          avengerTimer = 0;
+        }
+      }
+
+      else if (avengerCinematicState === "fight") {
+        if (avengerTimer === 60) {
+          showPlayerDialogue("Avenger: Eikit! Aš juos sulaikysiu!", 260);
+        }
+        if (avengerTimer > 260) {
+          avengerCinematicState = "death";
+          avengerTimer = 0;
+        }
+      }
+
+      else if (avengerCinematicState === "death") {
+        if (avengerSprite.opacity > 0) {
+          avengerSprite.opacity = Math.max(0, avengerSprite.opacity - 0.02);
+        }
+
+        if (avengerTimer > 60) {
+          avengerSprite = null;
+          avengerSpraySprite = null;
+          avengerCinematicState = null;
+          sprayParticles = [];
+          sirenSound.pause();
+          enemies = [];
+          gamePaused = true;
+
+          const heroCharNow = characters[selectedCharacter] || characters.player;
+          const heroNameNow = heroCharNow.name || "Hero";
+          const otherKeyNow =
+            selectedCharacter === "player" ? "player2" :
+            (selectedCharacter === "player2" ? "player" : "player");
+          const otherCharNow = characters[otherKeyNow] || characters.player2;
+          const otherNameNow = otherCharNow.name || "Ally";
+
+          playDialogueSequence([
+            { text: `${heroNameNow}: Ne... jis žuvo...`, ms: 2500 },
+            { text: `${otherNameNow}: Reikia judėt.`, ms: 2200 },
+            { text: `${heroNameNow}: Krasnucha naktį laukia.`, ms: 2500 }
+          ], () => {
+            nightOverlay = true;
+            goToStageNightFinal();
+          });
+        }
+      }
+    }
+
+    // Update spray particles
+    for (let i = sprayParticles.length - 1; i >= 0; i--) {
+      const p = sprayParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha -= 0.02;
+      if (p.alpha <= 0) sprayParticles.splice(i, 1);
+    }
+
+    if (player.health <= 0) { showGameOver(); return; }
+  }
+
+  // =============== ATTACK ==================
+  function attack() {
+    if (player.attackCooldown > 0) return;
+    for (let idx = enemies.length - 1; idx >= 0; idx--) {
+      const enemy = enemies[idx];
+      if (rectsOverlap(player, enemy)) {
+        enemy.health -= player.strength; enemy.hitTimer = 5; enemy.knockback = enemy.x > player.x ? 10 : -10; playHitSound();
+        if (enemy.health <= 0) {
+          enemies.splice(idx, 1);
+          score += enemy.isBoss ? 10 : (enemy.isPoliceman ? 4 : (enemy.isPoliceCar ? 8 : 1));
+          if (enemy.isBoss && currentStage === STAGE.TOWN) {
+            stageCleared = true;
+            showPlayerDialogue("Ble kotai Pončiku užsimaniau. Užeisiu į Maximą...", DIALOGUE_FRAMES);
+            entranceGlowActive = true;
+          }
+        }
+      }
+    }
+    player.attackCooldown = player.attackCooldownTime;
+  }
+
+  // =============== DRAW ==================
+  function drawEnemy(enemy) {
+    if (enemy.hitTimer > 0) {
+      ctx.globalAlpha = 0.6; ctx.fillStyle = "red";
+      ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+      ctx.globalAlpha = 1.0; enemy.hitTimer--;
+    }
+    else if (enemy.isBoss && enemy.isOreoFinal) {
+      drawImg(oreoBossImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    }
+    else if (enemy.isBoss) drawImg(bossImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    else if (enemy.isDog) drawImg(dogImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    else if (enemy.isBabushka) drawImg(babushkaImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    else if (enemy.isPoliceman) drawImg(policemanImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    else if (enemy.isPoliceCar) drawImg(policeCarImage, enemy.x, enemy.y, enemy.width, enemy.height);
+    else {
+      const img = enemy.skin === 2 ? enemy2Image : enemy1Image;
+      drawImg(img, enemy.x, enemy.y, enemy.width, enemy.height);
+    }
+
+    if (enemy.speech) {
+      ctx.font = "14px Arial"; ctx.fillStyle = "white";
+      ctx.strokeStyle = "black"; ctx.lineWidth = 3;
+      const textWidth = ctx.measureText(enemy.speech).width + 10;
+      const bubbleX = enemy.x + enemy.width/2 - textWidth/2;
+      const bubbleY = enemy.y - 25;
+      ctx.beginPath(); ctx.rect(bubbleX, bubbleY, textWidth, 20); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = 1; ctx.fillStyle = "black";
+      ctx.fillText(enemy.speech, bubbleX + 5, bubbleY + 15);
+    }
+  }
+
+  function drawHealthBar(){
+    ctx.fillStyle = "red"; ctx.fillRect(20,20,(player.health/player.maxHealth)*200,20);
+    ctx.strokeStyle = "black"; ctx.strokeRect(20,20,200,20);
+    ctx.font="12px Arial"; ctx.fillStyle="#fff"; ctx.fillText((player.name||"Hero"), 24, 18);
+    if (coop.active && coop.ally) {
+      const a = coop.ally;
+      ctx.fillStyle = "#0b8"; ctx.fillRect(20,46,(a.health/a.maxHealth)*200,14);
+      ctx.strokeStyle="#000"; ctx.strokeRect(20,46,200,14);
+      ctx.fillStyle="#fff"; ctx.fillText("Ally", 24, 44);
+    }
+    enemies.filter(e => e.isPoliceCar).forEach((car) => {
+      const maxHP = POLICE_CAR_STATS.health;
+      const frac = car.health / maxHP;
+      const barW = car.width, barH = 8;
+      const barX = car.x, barY = car.y - barH - 2;
+      ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.strokeRect(barX, barY, barW, barH);
+      ctx.fillStyle = "#3c8dff"; ctx.fillRect(barX, barY, Math.max(0, barW * frac), barH);
+    });
+  }
+
+  function drawScore(){
+    ctx.font = "20px Arial"; ctx.strokeStyle = "black"; ctx.lineWidth = 4;
+    ctx.strokeText(`Score: ${score}`, canvas.width-140, 50);
+    ctx.fillStyle = "white"; ctx.fillText(`Score: ${score}`, canvas.width-140, 50);
+  }
+
+  function drawOreoHealthBar() {
+    if (currentStage !== STAGE.STORE || !stage3.boss || coop.active) return;
+    const maxHP = 10; const pad = 20, barW = canvas.width - pad*2, barH = 18;
+    const frac = stage3.bossHP / maxHP;
+    ctx.strokeStyle = "black"; ctx.lineWidth = 3; ctx.strokeRect(pad, 10, barW, barH);
+    ctx.fillStyle = "#3c8dff"; ctx.fillRect(pad, 10, Math.max(0, barW * frac), barH);
+    ctx.font = "16px Arial"; ctx.fillStyle = "white";
+    const label = `OREO ${stage3.bossHP}/${maxHP}`; const tw = ctx.measureText(label).width;
+    ctx.fillText(label, pad + barW/2 - tw/2, 24);
+  }
+
+  let entranceGlowActive = false, entranceGlowOpacity = 0, glowPulseDirection = 1;
+
+  function wrapLines(ctx, text, maxWidth) {
+    const words = String(text || "").split(/\s+/);
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + " " + w : w;
+      if (ctx.measureText(test).width <= maxWidth) cur = test;
+      else { if (cur) lines.push(cur); cur = w; }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function drawOreoSideSpeech() {
+    if (currentStage !== STAGE.STORE || !stage3.boss || !stage3.boss.speech) return;
+    const pad = 12;
+    const panelW = 300;
+    const panelX = canvas.width - panelW - 16;
+    const panelY = 44;
+    const textMaxW = panelW - pad * 2;
+
+    ctx.font = "16px Arial";
+    const heading = "OREO";
+    const lines = wrapLines(ctx, stage3.boss.speech, textMaxW);
+
+    const lineH = 18;
+    const headingH = 20;
+    const gap = 8;
+    const panelH = pad + headingH + gap + lines.length * lineH + pad;
+
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.rect(panelX, panelY, panelW, panelH); ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText(heading, panelX + pad, panelY + pad + headingH - 6);
+
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "#fff";
+    let y = panelY + pad + headingH + gap;
+    for (const line of lines) { ctx.fillText(line, panelX + pad, y); y += lineH; }
+  }
+
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = "#111"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    if (bgReady && background.complete && background.naturalWidth > 0)
+      ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
+    else {
+      ctx.font = "18px Arial"; ctx.fillStyle = "#bbb";
+      const msg = bgFailed ? `Missing background: ${currentBgPath}` : "Loading…";
+      ctx.fillText(msg, 24, 50);
+    }
+
+    // Stage 3 visuals
+    if (currentStage === STAGE.STORE && stage3.boss && !coop.active) {
+      const b = stage3.boss;
+      if (stage3.bossHP > 0 || b.active) {
+        if (stage3.bossHP < 4) {
+          ctx.save();
+          if (b.hitFlash && b.hitFlash % 2 === 1) ctx.globalAlpha = 0.6;
+          drawImg(oreoBossImage, b.x, b.y, b.width, b.height);
+          ctx.globalAlpha=0.15; ctx.fillStyle="#66aaff";
+          ctx.fillRect(b.x,b.y,b.width,b.height);
+          ctx.restore();
+        } else {
+          if (b.hitFlash && b.hitFlash % 2 === 1) {
+            ctx.globalAlpha = 0.6;
+            drawImg(oreoBossImage, b.x, b.y, b.width, b.height);
+            ctx.globalAlpha = 1.0;
+          } else drawImg(oreoBossImage, b.x, b.y, b.width, b.height);
+        }
+      }
+      for (const p of stage3.ponchiks) drawImg(ponchikImage, p.x, p.y, p.w, p.h);
+      for (const t of stage3.tears) drawImg(tearImage, t.x, t.y, t.w, t.h);
+      for (const ex of stage3.explosions) drawImg(explosionImage, ex.x, ex.y, ex.w, ex.h);
+    }
+
+    // Player + ally
+    drawImg(playerImage, player.x, player.y, player.width, player.height);
+    if (coop.active && coop.ally && coop.ally.health>0)
+      drawImg(allyImage, coop.ally.x, coop.ally.y, coop.ally.width, coop.ally.height);
+
+    // Enemies
+    enemies.forEach(drawEnemy);
+
+    // Stage 3 deodorants
+    if (currentStage === STAGE.STORE && !coop.active)
+      for (const d of stage3.deodorants) drawImg(deodorantImage, d.x, d.y, d.w, d.h);
+
+    // Pickups
+    if (!(currentStage === STAGE.ARM && coop.ambushActive && armAmbushType === "police")) {
+      if (cigarette.active) drawImg(cigaretteImage, cigarette.x, cigarette.y, cigarette.width, cigarette.height);
+      if (vodka.active) drawImg(vodkaImage, vodka.x, vodka.y, vodka.width, vodka.height);
+    }
+
+    drawScore(); drawHealthBar(); drawOreoHealthBar();
+    if (currentStage === STAGE.STORE && !coop.active) drawOreoSideSpeech();
+
+    // Stage 1 red entrance marker
+    if (entranceGlowActive && currentStage === STAGE.TOWN) {
+      entranceGlowOpacity += 0.01 * glowPulseDirection;
+      if (entranceGlowOpacity >= 0.6) glowPulseDirection = -1;
+      else if (entranceGlowOpacity <= 0.2) glowPulseDirection = 1;
+      ctx.fillStyle = `rgba(255, 0, 0, ${entranceGlowOpacity})`;
+      ctx.fillRect(320, 310, 60, 75);
+    }
+
+    // Stage 4 yellow entrance marker
+    if (currentStage === STAGE.ARM && armEntranceGlowActive) {
+      armEntranceGlowOpacity += 0.01 * armGlowPulseDirection;
+      if (armEntranceGlowOpacity >= 0.7) armGlowPulseDirection = -1;
+      else if (armEntranceGlowOpacity <= 0.25) armGlowPulseDirection = 1;
+      ctx.fillStyle = `rgba(255, 215, 0, ${armEntranceGlowOpacity})`;
+      const r = ARM_DOOR_RECT;
+      ctx.fillRect(r.x, r.y, r.width, r.height);
+    }
+    
+    // Kasyak green tint
+    if (isKasyakActive) {
+      ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Volkas sprite + spray can
+    if (avengerSprite) {
+      ctx.save();
+      if (avengerSprite.opacity !== undefined) ctx.globalAlpha = avengerSprite.opacity;
+      drawImg(avengerImage, avengerSprite.x, avengerSprite.y, avengerSprite.w, avengerSprite.h);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+
+      if (avengerSpraySprite && avengerCinematicState === "spray") {
+        drawImg(sprayImage, avengerSpraySprite.x, avengerSpraySprite.y, avengerSpraySprite.w, avengerSpraySprite.h);
+      }
+    }
+
+    // Spray gas particles
+    if (sprayParticles.length) {
+      ctx.save();
+      for (const p of sprayParticles) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(0,255,0,${p.alpha.toFixed(2)})`;
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // Night overlay in final stage
+    if (nightOverlay && currentStage === STAGE.FINAL) {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (dialogueTimer > 0) {
+      ctx.font = "28px Arial"; ctx.fillStyle = "white";
+      ctx.strokeStyle = "black"; ctx.lineWidth = 4;
+      const w = ctx.measureText(dialogueText).width;
+      ctx.strokeText(dialogueText, canvas.width/2 - w/2, canvas.height/2);
+      ctx.fillText(dialogueText, canvas.width/2 - w/2, canvas.height/2);
+      dialogueTimer--;
+    }
+  }
+
+  // =============== STAGE 4 (ARM) ==============
+  function goToStage4_ARM(){
+    currentStage = STAGE.ARM;
+    coop.active = true;
+    coop.ambushActive = false;
+    armAmbushType = "none";
+    enemies = [];
+    armEntranceGlowActive = false;
+    setBackground("./ARM.png");
+
+    player.x = Math.min(canvas.width - player.width - 40, canvas.width - 260);
+    player.y = canvas.height - player.height - 40;
+
+    const chosen = characters[selectedCharacter] || characters.player;
+    const otherKey = selectedCharacter === "player" ? "player2" : (selectedCharacter === "player2" ? "player" : "player");
+    const other = characters[otherKey];
+    allyImage.src = other.image;
+    coop.ally = {
+      x: player.x - 140, y: player.y + 10,
+      width: other.width, height: other.height,
+      speed: (other.baseSpeed*0.9), health: Math.round(other.baseHealth*1.0),
+      maxHealth: Math.round(other.baseHealth*1.0), strength: other.baseStr,
+      attackCooldownTime: other.attackCooldownTime, attackCooldown: 0
+    };
+
+    gamePaused = true;
+    const bumpFrames = 20; let f = 0;
+    function bumpStep(){
+      if (f < bumpFrames) {
+        player.x += 0.8; coop.ally.x -= 0.8; f++; draw(); requestAnimationFrame(bumpStep);
+      } else {
+        const you = chosen.name, friend = other.name;
+        playDialogueSequence([
+          { text: `${friend}: O. ${you}? Ką tu čia? Vos neatsitrenkiau.`, ms: DIALOGUE_MS },
+          { text: `${you}: Nu tai žiūrėk, kur eini, debile. Ko tau reikia?`, ms: DIALOGUE_MS },
+          { text: `${friend}: Galvoju į ARM eit. Po Maximą palakščiojus.`, ms: DIALOGUE_MS },
+          { text: `${you}: Būtent. Alus dabar tiktų. Bet žiūrėk — lenda kažkokie.`, ms: DIALOGUE_MS },
+          { text: `${friend}: Gerai, tada dirbam kartu.`, ms: DIALOGUE_MS/2 },
+          { text: `${you}: Aišku. Greičiau pabaigsim — greičiau alaus.`, ms: DIALOGUE_MS }
+        ], () => startArmAmbush());
+      }
+    }
+    bumpStep();
+  }
+
+  function startArmAmbush(){
+    gamePaused = false;
+    coop.ambushActive = true;
+    armAmbushType = "hobo";
+    enemies = [];
+    if (spawnTimer) { clearInterval(spawnTimer); spawnTimer = null; }
+
+    music = new Audio("./bomzas repuoja.mp3");
+    music.loop = true; music.volume = 0.35;
+    music.play().catch(()=>{});
+
+    const waveCount = 7;
+    for (let i=0;i<waveCount;i++) {
+      const fromLeft = Math.random() < 0.5;
+      const x = fromLeft ? -50 : canvas.width + 50;
+      const y = Math.random() * (canvas.height - 160) + 80;
+      enemies.push({
+        x, y,
+        width: 50, height: 80,
+        speed: 1.4,
+        health: 2,
+        attackCooldown: 0, knockback: 0, hitTimer: 0,
+        isBoss: false, isDog: false, isBabushka: false, isPoliceman: false, isPoliceCar: false,
+        skin: Math.random() < 0.5 ? 1 : 2,
+        speech: "", speechCooldown: Math.random() * 400 + 300
+      });
+    }
+  }
+
+  // =============== STAGES 1–3 SETUP ==================
+  function playStage3Cutscene() {
+    currentStage = STAGE.STORE;
+    gamePaused = true; for (const k in keys) delete keys[k];
+    player.x = Math.floor(canvas.width / 2 - player.width / 2);
+    player.y = canvas.height + 10;
+    const targetY = Math.floor(canvas.height * 0.78);
+    stage3.boss = {
+      x: canvas.width/2 - 180, y: -260,
+      width: 360, height: 240, active: false,
+      hitFlash: 0, speech: "", speechCooldown: Math.floor(Math.random()*180) + 120
+    };
+
+    function walkUp() {
+      if (player.y > targetY) {
+        player.y -= 2.4; draw(); requestAnimationFrame(walkUp);
+      } else {
+        showPlayerDialogue("Nesupratau, kur visi Pončikai?", DIALOGUE_FRAMES);
+        setTimeout(() => { slideBossIn(); }, 900);
+      }
+    }
+    function slideBossIn() {
+      const targetBossY = 20;
+      function step() {
+        if (stage3.boss.y < targetBossY) {
+          stage3.boss.y += 3.0; draw(); requestAnimationFrame(step);
+        } else {
+          music = new Audio("./megalovania.mp3"); music.loop = true; music.volume = 0.5;
+          music.play().catch(()=>{});
+          setTimeout(() => { stage3.boss.active = true; gamePaused = false; }, 900);
+        }
+      }
+      step();
+    }
+    walkUp();
+  }
+
+  function goToStage2() {
+    currentStage = STAGE.MAXIMA;
+    stageCleared = false; enemies = []; score = 0;
+    babushkaWaveCount = 0; stage2AwaitingClear = false; stage2TransitionQueued = false;
+    entranceGlowActive = false;
+    setBackground("./maxima.png");
+    music.pause(); music = new Audio("./maxima_music.mp3");
+    music.loop = true; music.volume = 0.5; music.play().catch(()=>{});
+    showPlayerDialogue("Atėjau į Maximą... Ble baisu kažkaip.", DIALOGUE_FRAMES);
+  }
+
+  function goToStage3() {
+    currentStage = STAGE.STORE; stageCleared = false; enemies = []; score = 0;
+    stage3.ponchiks.length = 0; stage3.attackTimer = 0; stage3.boss = null; stage3.bossHP = 10;
+    stage3.deodorants.length = 0; stage3.tears.length = 0; stage3.tearTimer = 0; stage3.explosions.length = 0;
+    setBackgroundTry(["./ponchikaisle.jpg","./ponchikaisle.jpeg","./ponchikaisle.png","./PonchikAisle.jpg","./PonchikAisle.JPG","./PONCHIKAISLE.JPG"]);
+    music.pause();
+    if (deodorantSpawnTimer) clearInterval(deodorantSpawnTimer);
+    deodorantSpawnTimer = setInterval(spawnDeodorantOnPath, 8000);
+    playStage3Cutscene();
+  }
+
+  // =============== ARM SHOP (Stage 5) ==============
+  function goToArmShop(){
+    currentStage = STAGE.ARMSHOP;
+    wallet = 11.35;
+    armEntranceGlowActive = false;
+    enemies = [];
+    coop.ambushActive = false;
+    armAmbushType = "none";
+    sirenSound.pause();
+
+    setBackground("./armshop.png");
+    music.pause();
+    music = new Audio("./maxima_music.mp3");
+    music.loop = true; music.volume = 0.28;
+    music.play().catch(()=>{});
+
+    player.x = ARM_DOOR_RECT.x + 10;
+    player.y = ARM_DOOR_RECT.y + ARM_DOOR_RECT.height + 10;
+
+    playDialogueSequence([
+      { text: "Armen: Labą dieną, ko šiandien norėtumėt?", ms: DIALOGUE_MS }
+    ], () => { showShop(); });
+  }
+
+  function beerExitConversation(carCount, isKasyak = false){
+    setBackground("./ARM.png");
+    currentStage = STAGE.ARM;
+    coop.active = true;
+    enemies = [];
+    coop.ambushActive = false;
+    armAmbushType = "none";
+    sirenSound.pause();
+
+    const chosen = characters[selectedCharacter] || characters.player;
+    const otherKey = selectedCharacter === "player" ? "player2" : (selectedCharacter === "player2" ? "player" : "player");
+    const other = characters[otherKey];
+    allyImage.src = other.image;
+    coop.ally = {
+      x: player.x - 140, y: player.y + 10,
+      width: other.width, height: other.height,
+      speed: (other.baseSpeed*0.9), health: Math.round(other.baseHealth*1.0),
+      maxHealth: Math.round(other.baseHealth*1.0), strength: other.baseStr,
+      attackCooldownTime: other.attackCooldownTime, attackCooldown: 0
+    };
+    gamePaused = true;
+
+    const you = chosen.name, friend = other.name;
+
+    if (!isKasyak) {
+      playDialogueSequence([
+        { text: `${you}: Blet, kaip palengvėjo. Alus — gėris.`, ms: DIALOGUE_MS },
+        { text: `${friend}: Vistiek, gėris trumpalaikis. Visi šitie bomžai ir šūdai...`, ms: DIALOGUE_MS },
+        { text: `${you}: Tiesa. Reiks eit ir apvalyt šitą Krasnuchos šiukšlyną.`, ms: DIALOGUE_MS },
+        { text: `${friend}: Kitas kartas. Dabar jaučiu kažkas negerai...`, ms: DIALOGUE_MS }
+      ], () => { spawnPoliceAmbush(carCount, false); });
+    } else {
+      playDialogueSequence([
+        { text: `${you}: Blet... man negerai...`, ms: DIALOGUE_MS },
+        { text: `${friend}: Kas tau, ${you}?`, ms: DIALOGUE_MS },
+        { text: `${you}: Viskas sukasi. Jaučiuosi lyg būčiau... kitas žmogus.`, ms: DIALOGUE_MS },
+        { text: `${friend}: Rimtai, tu žalias visas. O ir mentai lenda!`, ms: DIALOGUE_MS }
+      ], () => { spawnPoliceAmbush(carCount, true); });
+    }
+  }
+
+  function playKasyakEffect(){
+    gamePaused = true;
+    isKasyakActive = true;
+    music.volume = 0.1;
+    sirenSound.pause();
+
+    const heroName = (characters[selectedCharacter]||characters.player).name || "Hero";
+    
+    playDialogueSequence([
+      { text: `${heroName}: Nu va, smirdinti realybė dingsta. Jaučiu, kad esu labai greitas, bet lėtas.`, ms: DIALOGUE_MS * 1.5 },
+      { text: `Visi garsai lyg per vatą. Aplinkui — tik žalios nuotaikos.`, ms: DIALOGUE_MS * 1.5 },
+      { text: `Tiek to, grįžtu atgal. Bet šitie mentai manęs nepaleis.`, ms: DIALOGUE_MS * 1.5 },
+    ], () => {
+      isKasyakActive = false;
+      music.volume = 0.35;
+    });
+  }
+
+  // =============== FINAL NIGHT STAGE ==================
+  function goToStageNightFinal() {
+    currentStage = STAGE.FINAL;
+    finalBattle.active = false;
+    finalBattle.wave = 0;
+    finalBattle.waitingForNext = false;
+
+    enemies = [];
+    coop.ambushActive = false;
+    armAmbushType = "none";
+
+    setBackground("./background.png");
+
+    music.pause();
+    music = new Audio("./megalovania.mp3");
+    music.loop = true;
+    music.volume = 0.6;
+    music.play().catch(() => {});
+
+    const chosen = characters[selectedCharacter] || characters.player;
+    const otherKey =
+      selectedCharacter === "player" ? "player2" :
+      (selectedCharacter === "player2" ? "player" : "player");
+    const other = characters[otherKey];
+
+    allyImage.src = other.image;
+    if (!coop.ally) {
+      coop.ally = {
+        x: player.x - 140,
+        y: player.y + 10,
+        
